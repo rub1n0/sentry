@@ -25,9 +25,7 @@
 ## Installation
 
 ```bash
-sudo apt-get update && sudo apt-get install -y \
-  bluez bluez-hcidump libbluetooth-dev libglib2.0-dev pkg-config \
-  python3-venv python3-pip
+sudo apt-get update && sudo apt-get install -y bluez bluez-hcidump libbluetooth-dev libglib2.0-dev pkg-config python3-venv python3-pip
 python3 -m venv .venv
 source .venv/bin/activate
 pip install bleak bluepy colorama blessed
