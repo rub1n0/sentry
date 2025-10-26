@@ -22,6 +22,7 @@ import os
 import random
 import re
 import signal
+import subprocess
 import sys
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
@@ -40,6 +41,80 @@ def utc_now() -> dt.datetime:
 def isoformat(ts: dt.datetime) -> str:
     """Format a datetime as ISO-8601 string with Z suffix."""
     return ts.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _parse_bool_field(value: str) -> bool:
+    return value.strip().lower() in {"yes", "1", "on", "true"}
+
+
+def get_rfkill_status(adapter: str) -> Optional[Tuple[bool, bool]]:
+    """Return the rfkill soft/hard block state for the given adapter if available."""
+
+    try:
+        result = subprocess.run(
+            ["rfkill", "list"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        LOGGER.debug("rfkill binary not present; skipping rfkill diagnostics")
+        return None
+    except subprocess.CalledProcessError as exc:
+        LOGGER.debug("rfkill invocation failed: %s", exc)
+        return None
+
+    active = False
+    soft_blocked: Optional[bool] = None
+    hard_blocked: Optional[bool] = None
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        header = re.match(r"(\d+):\s*([^:]+):\s*(.+)", line)
+        if header:
+            name = header.group(2).strip()
+            active = name == adapter
+            continue
+        if not active:
+            continue
+        if line.lower().startswith("soft blocked:"):
+            soft_blocked = _parse_bool_field(line.split(":", 1)[1])
+        elif line.lower().startswith("hard blocked:"):
+            hard_blocked = _parse_bool_field(line.split(":", 1)[1])
+            # Once we've seen both fields we can stop inspecting further lines
+            if soft_blocked is not None:
+                break
+
+    if soft_blocked is None and hard_blocked is None:
+        return None
+    return soft_blocked or False, hard_blocked or False
+
+
+def log_rfkill_hint(adapter: str) -> None:
+    """Emit helpful guidance if rfkill is blocking the Bluetooth adapter."""
+
+    status = get_rfkill_status(adapter)
+    if not status:
+        return
+    soft, hard = status
+    if not soft and not hard:
+        return
+    if soft and hard:
+        state = "soft and hard"
+    elif soft:
+        state = "soft"
+    else:
+        state = "hard"
+    LOGGER.error(
+        "!! Adapter %s appears %s-blocked by rfkill. Try: sudo rfkill unblock bluetooth",
+        adapter,
+        state,
+    )
+    if hard:
+        LOGGER.error(
+            "!! Some devices require toggling a physical switch or BIOS setting to clear a hard block"
+        )
 
 
 class DedupeCache:
@@ -436,6 +511,7 @@ class Scanner:
             "!! No BLE backend succeeded. Errors: %s", "; ".join(errors) or "unknown"
         )
         LOGGER.error("!! Ensure bluetooth is up: sudo hciconfig %s up", self.adapter)
+        log_rfkill_hint(self.adapter)
 
     async def _run_bleak(self) -> None:
         from bleak import BleakScanner  # type: ignore
@@ -668,6 +744,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     except RuntimeError as exc:
         LOGGER.error("!! Runtime error: %s", exc)
         LOGGER.error("!! Is the adapter up? Try: sudo hciconfig %s up", args.adapter)
+        log_rfkill_hint(args.adapter)
         return 1
     return 0
 
