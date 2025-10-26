@@ -27,7 +27,7 @@ import sys
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 import unittest
 
 LOGGER = logging.getLogger("ble_sniffer")
@@ -488,6 +488,7 @@ class Scanner:
             backend_attempts.append("bleak")
         backend_attempts.append("bluepy")
         errors: List[str] = []
+        missing_backends: Set[str] = set()
         for backend in backend_attempts:
             if backend == "bleak":
                 try:
@@ -495,6 +496,7 @@ class Scanner:
                     return
                 except ModuleNotFoundError:
                     errors.append("bleak not installed. pip install bleak")
+                    missing_backends.add("bleak")
                 except Exception as exc:
                     LOGGER.exception("!! Bleak scanner failed: %s", exc)
                     errors.append(f"bleak error: {exc}")
@@ -504,6 +506,7 @@ class Scanner:
                     return
                 except ModuleNotFoundError:
                     errors.append("bluepy not installed. pip install bluepy")
+                    missing_backends.add("bluepy")
                 except Exception as exc:
                     LOGGER.exception("!! bluepy scanner failed: %s", exc)
                     errors.append(f"bluepy error: {exc}")
@@ -512,6 +515,11 @@ class Scanner:
         )
         LOGGER.error("!! Ensure bluetooth is up: sudo hciconfig %s up", self.adapter)
         log_rfkill_hint(self.adapter)
+        if missing_backends and missing_backends == set(backend_attempts):
+            LOGGER.warning(
+                "!! Falling back to simulation mode because no optional BLE backends are installed"
+            )
+            await self._run_simulation()
 
     async def _run_bleak(self) -> None:
         from bleak import BleakScanner  # type: ignore
