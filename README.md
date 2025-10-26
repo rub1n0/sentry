@@ -26,7 +26,8 @@
 
 ```bash
 sudo apt-get update && sudo apt-get install -y \
-  bluez bluez-hcidump libbluetooth-dev python3-venv python3-pip
+  bluez bluez-hcidump libbluetooth-dev libglib2.0-dev pkg-config \
+  python3-venv python3-pip
 python3 -m venv .venv
 source .venv/bin/activate
 pip install bleak bluepy colorama blessed
@@ -96,7 +97,9 @@ These tests validate the TTL-based deduplication cache and ensure the advertisem
 
 - **Adapter down:** Run `sudo hciconfig hci0 up`.
 - **Permission errors:** Run the script via `sudo` or ensure your user is part of the `bluetooth` group.
-- **Missing dependencies:** Re-run the installation steps above; the script clearly reports which backend failed to load.
+- **Missing dependencies:** Re-run the installation steps above; the script clearly reports which backend failed to load. If the
+  optional `bluepy` backend fails to build, ensure the GLib development headers are installed (`libglib2.0-dev`) and that
+  `pkg-config` is available.
 - **No TTY / piped output:** The program automatically disables color, box characters, and spinner to remain readable.
 
 ## Example Outputs
